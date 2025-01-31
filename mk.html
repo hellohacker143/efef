@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flappy Bird with Hand Tracking</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #74ebd5, #acb6e5);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .header {
+      width: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 10px 0;
+      text-align: center;
+      position: fixed;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
+      box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    .header div {
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    .game-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      padding-top: 70px; /* Space for the header */
+    }
+
+    canvas {
+      border: 2px solid #fff;
+      border-radius: 10px;
+      background: #222;
+      max-width: 90%;
+      max-height: 70%;
+      width: auto;
+      height: auto;
+    }
+
+    video {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div id="score">Score: 0</div>
+    <div id="timer">Time: 60</div>
+  </div>
+
+  <div class="game-container">
+    <canvas id="gameCanvas" width="500" height="500"></canvas>
+  </div>
+
+  <video id="webcam" autoplay playsinline></video>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('score');
+    const timerDisplay = document.getElementById('timer');
+
+    let bird = {
+      x: 50,
+      y: canvas.height / 2,
+      radius: 15,
+      dy: 0,
+      gravity: 0.6,
+      lift: -10,
+      color: 'yellow',
+    };
+
+    let pipes = [];
+    let score = 0;
+    let timeLeft = 60;
+    let gameOver = false;
+
+    // Draw bird
+    function drawBird() {
+      ctx.beginPath();
+      ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+      ctx.fillStyle = bird.color;
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    // Draw pipes
+    function drawPipes() {
+      ctx.fillStyle = 'green';
+      pipes.forEach(pipe => {
+        ctx.fillRect(pipe.x, 0, pipe.width, pipe.top);
+        ctx.fillRect(pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom);
+      });
+    }
+
+    // Update bird position
+    function updateBird() {
+      bird.dy += bird.gravity;
+      bird.y += bird.dy;
+
+      // Keep bird within canvas bounds
+      if (bird.y + bird.radius > canvas.height) {
+        bird.y = canvas.height - bird.radius;
+        bird.dy = 0;
+      }
+      if (bird.y - bird.radius < 0) {
+        bird.y = bird.radius;
+        bird.dy = 0;
+      }
+    }
+
+    // Update pipes
+    function updatePipes() {
+      if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - 200) {
+        const gap = 100;
+        const top = Math.random() * (canvas.height - gap - 100) + 50;
+        const bottom = canvas.height - top - gap;
+        pipes.push({ x: canvas.width, width: 50, top, bottom });
+      }
+
+      pipes.forEach(pipe => {
+        pipe.x -= 2;
+
+        // Check for collision
+        if (
+          bird.x + bird.radius > pipe.x &&
+          bird.x - bird.radius < pipe.x + pipe.width &&
+          (bird.y - bird.radius < pipe.top || bird.y + bird.radius > canvas.height - pipe.bottom)
+        ) {
+          gameOver = true;
+        }
+
+        // Increase score if bird passes a pipe
+        if (pipe.x + pipe.width < bird.x - bird.radius && !pipe.passed) {
+          score++;
+          pipe.passed = true;
+        }
+      });
+
+      // Remove off-screen pipes
+      pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
+    }
+
+    // Timer
+    function startTimer() {
+      const timerInterval = setInterval(() => {
+        if (timeLeft > 0 && !gameOver) {
+          timeLeft--;
+          timerDisplay.textContent = `Time: ${timeLeft}`;
+        } else {
+          clearInterval(timerInterval);
+          if (gameOver) {
+            alert(`Game Over! Your score is ${score}`);
+          } else {
+            alert(`Time's up! Your score is ${score}`);
+          }
+          document.location.reload();
+        }
+      }, 1000);
+    }
+
+    // Game loop
+    function gameLoop() {
+      if (gameOver) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBird();
+      drawPipes();
+      updateBird();
+      updatePipes();
+      scoreDisplay.textContent = `Score: ${score}`;
+      requestAnimationFrame(gameLoop);
+    }
+
+    // MediaPipe Hands setup
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7,
+    });
+
+    const videoElement = document.getElementById('webcam');
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480,
+    });
+    camera.start();
+
+    hands.onResults((results) => {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        const indexFinger = landmarks[8]; // Index finger tip
+
+        // Map index finger y-coordinate to bird's lift
+        if (indexFinger.y * canvas.height < bird.y) {
+          bird.dy = bird.lift;
+        }
+      }
+    });
+
+    startTimer();
+    gameLoop();
+  </script>
+</body>
+</html>
